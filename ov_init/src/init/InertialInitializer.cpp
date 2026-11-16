@@ -20,6 +20,7 @@
  */
 
 #include "InertialInitializer.h"
+#include <cmath>
 
 #ifndef __ANDROID__
 #include "dynamic/DynamicInitializer.h"
@@ -99,6 +100,43 @@ bool InertialInitializer::initialize(double &timestamp, Eigen::MatrixXd &covaria
   auto it_imu = imu_data->begin();
   while (it_imu != imu_data->end() && it_imu->timestamp < oldest_time + params.calib_camimu_dt) {
     it_imu = imu_data->erase(it_imu);
+  }
+
+  // Diagnostic only: use the same IMU windows/statistic as StaticInitializer.
+  // Run before visual gating, without changing any initialization decision.
+  if (!imu_data->empty()) {
+    const double newest = imu_data->back().timestamp;
+    if (last_monitor_time < 0.0 || newest < last_monitor_time || newest - last_monitor_time >= 0.2) {
+      last_monitor_time = newest;
+      Eigen::Vector3d mean_old = Eigen::Vector3d::Zero(), mean_new = Eigen::Vector3d::Zero();
+      size_t n_old = 0, n_new = 0;
+      const double start = newest - params.init_window_time;
+      const double middle = newest - 0.5 * params.init_window_time;
+      for (const auto &data : *imu_data) {
+        if (data.timestamp > start && data.timestamp <= middle) {
+          mean_old += data.am;
+          ++n_old;
+        } else if (data.timestamp > middle && data.timestamp <= newest) {
+          mean_new += data.am;
+          ++n_new;
+        }
+      }
+      if (newest - imu_data->front().timestamp < params.init_window_time || n_old < 2 || n_new < 2) {
+        PRINT_INFO("[init-monitor] window not ready (old=%zu new=%zu)\n", n_old, n_new);
+      } else {
+        mean_old /= static_cast<double>(n_old);
+        mean_new /= static_cast<double>(n_new);
+        double sum_old = 0.0, sum_new = 0.0;
+        for (const auto &data : *imu_data) {
+          if (data.timestamp > start && data.timestamp <= middle)
+            sum_old += (data.am - mean_old).squaredNorm();
+          else if (data.timestamp > middle && data.timestamp <= newest)
+            sum_new += (data.am - mean_new).squaredNorm();
+        }
+        PRINT_INFO("[init-monitor] accel_old=%.3f accel_new=%.3f thresh=%.3f\n",
+                   std::sqrt(sum_old / (n_old - 1)), std::sqrt(sum_new / (n_new - 1)), params.init_imu_thresh);
+      }
+    }
   }
 
   // Compute the disparity of the system at the current timestep

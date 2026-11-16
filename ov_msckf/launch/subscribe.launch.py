@@ -41,6 +41,11 @@ launch_args = [
         description="how many cameras we have 1 = mono, 2 = stereo, >2 = binocular (all mono tracking)",
     ),
     DeclareLaunchArgument(
+        name="imu_topic",
+        default_value="/camera/camera/imu",
+        description="IMU input topic; use /camera/camera/imu_notched for the order-tracking filter",
+    ),
+    DeclareLaunchArgument(
         name="save_total_state",
         default_value="false",
         description="record the total state with calibration and features to a txt file",
@@ -86,6 +91,9 @@ def launch_setup(context):
             {"max_cameras": LaunchConfiguration("max_cameras")},
             {"save_total_state": LaunchConfiguration("save_total_state")},
             {"config_path": config_path},
+        ],
+        remappings=[
+            ('/camera/camera/imu', LaunchConfiguration('imu_topic')),
         ],
     )
 
